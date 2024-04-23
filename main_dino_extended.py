@@ -138,12 +138,12 @@ def train_dino(args):
     cudnn.benchmark = True
 
     # ============ preparing data ... ============
-    transform = DataAugmentationDINO(
-        args.global_crops_scale,
-        args.local_crops_scale,
-        args.local_crops_number,
-    )
-    dataset = CustomImageFolder(args.data_path, transform=transform)
+    #transform = DataAugmentationDINO(
+    #    args.global_crops_scale,
+    #    args.local_crops_scale,
+    #    args.local_crops_number,
+    #)
+    dataset = CustomImageFolder(args.data_path, local_crops_number=args.local_crops_number)
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
     data_loader = torch.utils.data.DataLoader(
         dataset,
