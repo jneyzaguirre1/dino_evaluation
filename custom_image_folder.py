@@ -6,12 +6,33 @@ import random
 import pdb
 
 class CustomImageFolder(datasets.ImageFolder):
-    def __init__(self, root, transform=None):
+    def __init__(self, root, transform=None, local_crops_number):
         super().__init__(root, transform=transform)
         self.root = root
         self.imgs = self.samples
         # Build an auxiliary structure to fetch items by label quickly
         self.label_to_indices = self._map_labels_to_indices()
+        self.local_crops = local_crops_number
+
+        # Right now, all of these do a random crop, random horizontal flip, then normalize
+        self.global_crop_1 = transforms.Compose([
+            transforms.RandomResizedCrop(224, scale=global_crops_scale, interpolation=Image.BICUBIC),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+        self.global_crop_2 = transforms.Compose([
+            transforms.RandomResizedCrop(224, scale=global_crops_scale, interpolation=Image.BICUBIC),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+        self.local_crop = transforms.Compose([
+            transforms.RandomResizedCrop(96, scale=local_crops_scale, interpolation=Image.BICUBIC),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
 
     def _map_labels_to_indices(self):
         label_to_indices = {}
@@ -32,6 +53,20 @@ class CustomImageFolder(datasets.ImageFolder):
         subset_indices = random.sample(indices, min(subset_size, len(indices)))  # Make sure not to exceed the number of samples available
         return [(self.loader(self.imgs[i][0]), self.imgs[i][1]) for i in subset_indices]
 
+    def __getitem__(self, index):
+        crops = []
+        path, target = self.imgs[index]
+        crops.append(self.global_crop_1(self.loader(path))) #global crop original image
+
+        subset_indices = self.get_random_subset_for_label(target, self.local_crops+1, exclude_index=index)
+
+        crops.append(self.global_crop_2(self.loader(self.imgs[subset_indices[0]][0]))) #global crop first subset image
+
+        #local crops
+        for i in range(1, len(subset_indices)):
+            crops.append(self.local_crop(self.loader(self.imgs[subset_indices[i]][0])))
+
+        return crops
 
 if __name__ == "__main__":
     # Assuming '/path/to/dataset' is your directory with class subdirectories
