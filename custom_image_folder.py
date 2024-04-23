@@ -3,6 +3,8 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import random
 
+import pdb
+
 class CustomImageFolder(datasets.ImageFolder):
     def __init__(self, root, transform=None):
         super().__init__(root, transform=transform)
@@ -31,26 +33,28 @@ class CustomImageFolder(datasets.ImageFolder):
         return [(self.loader(self.imgs[i][0]), self.imgs[i][1]) for i in subset_indices]
 
 
-
-
-if __name__ == "__main_":
-
+if __name__ == "__main__":
     # Assuming '/path/to/dataset' is your directory with class subdirectories
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
 
-    dataset = CustomImageFolder(root='/mnt/c/Users/Kerem U/Downloads/ROB 498.011/final_proj/dino_evaluation/tiny-imagenet-200/tiny-imagenet-200/train', transform=transform)
+    dataset = CustomImageFolder('tiny-imagenet-200/tiny-imagenet-200/train', transform=transform)
 
     # DataLoader instantiation, nothing different here
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+    print(len(dataloader))
 
     # Example: iterating through DataLoader to get subsets for the first batch
     for imgs, lbls in dataloader:
         # For each image, get a random subset of 5 images with the same label
         subsets = [dataset.get_random_subset_for_label(lbl.item(), subset_size=5, exclude_index=i) for i, lbl in enumerate(lbls)]
         # do something with these subsets, for example, print the size of the first subset
+        class_to_idx = dataset.class_to_idx
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+        folder_name = [idx_to_class[lbls[j].item()] for j in range(len(lbls))]
+        print(folder_name)
         print(len(subsets[0]))
         breakpoint()
-        break
