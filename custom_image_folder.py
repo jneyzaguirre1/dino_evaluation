@@ -2,17 +2,22 @@ import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import random
+import os
+import torchvision.transforms.functional as TF
+from PIL import Image
 
 import pdb
 
 class CustomImageFolder(datasets.ImageFolder):
-    def __init__(self, root, transform=None, local_crops_number):
+    def __init__(self, root, transform=None):
         super().__init__(root, transform=transform)
         self.root = root
         self.imgs = self.samples
         # Build an auxiliary structure to fetch items by label quickly
         self.label_to_indices = self._map_labels_to_indices()
-        self.local_crops = local_crops_number
+        self.local_crops = 8
+        global_crops_scale=(0.4, 1.)
+        local_crops_scale=(0.05, 0.4)
 
         # Right now, all of these do a random crop, random horizontal flip, then normalize
         self.global_crop_1 = transforms.Compose([
@@ -51,7 +56,8 @@ class CustomImageFolder(datasets.ImageFolder):
             except ValueError:
                 pass  # The exclude_index is not in the list, do nothing
         subset_indices = random.sample(indices, min(subset_size, len(indices)))  # Make sure not to exceed the number of samples available
-        return [(self.loader(self.imgs[i][0]), self.imgs[i][1]) for i in subset_indices]
+        #return [(self.loader(self.imgs[i][0]), self.imgs[i][1]) for i in subset_indices]
+        return subset_indices
 
     def __getitem__(self, index):
         crops = []
@@ -67,6 +73,13 @@ class CustomImageFolder(datasets.ImageFolder):
             crops.append(self.local_crop(self.loader(self.imgs[subset_indices[i]][0])))
 
         return crops
+    
+    def view_crops(self, crops):
+        for j, image in enumerate(crops):
+            print(image.size())
+            filename = os.path.join('crops', f'crop_{j}.png')
+            image = TF.to_pil_image(image)
+            image.save(filename)
 
 if __name__ == "__main__":
     # Assuming '/path/to/dataset' is your directory with class subdirectories
@@ -75,13 +88,19 @@ if __name__ == "__main__":
         transforms.ToTensor()
     ])
 
-    dataset = CustomImageFolder('tiny-imagenet-200/tiny-imagenet-200/train', transform=transform)
+    dataset = CustomImageFolder('data/tiny-imagenet-200/train', transform=None)
 
     # DataLoader instantiation, nothing different here
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
 
     print(len(dataloader))
 
+    #expect 10 because the first item in dataset should be the 10 crops
+    print(len(dataset[0]))
+    # you'll want to comment out the transforms.normalize if you want the images to be interperetable by humans.
+    dataset.view_crops(dataset[0])
+
+    """
     # Example: iterating through DataLoader to get subsets for the first batch
     for imgs, lbls in dataloader:
         # For each image, get a random subset of 5 images with the same label
@@ -93,3 +112,4 @@ if __name__ == "__main__":
         print(folder_name)
         print(len(subsets[0]))
         breakpoint()
+    """
