@@ -238,7 +238,7 @@ def train_dino(args):
 
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
-        args.lr * (args.batch_size_per_gpu * utils.get_world_size()) / 256.,  # linear scaling rule
+        args.lr, #* (args.batch_size_per_gpu) / 256.,  # linear scaling rule
         args.min_lr,
         args.epochs, len(data_loader),
         warmup_epochs=args.warmup_epochs,
@@ -271,7 +271,7 @@ def train_dino(args):
     for epoch in range(start_epoch, args.epochs):
         # Only necessary in using ddp to make shuffling work properly across multiple epochs.
         # data_loader.sampler.set_epoch(epoch)
-        
+
         # ============ training one epoch of DINO ... ============
         train_stats = train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
             data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
