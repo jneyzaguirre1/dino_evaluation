@@ -6,9 +6,9 @@ import os
 import torchvision.transforms.functional as TF
 from PIL import Image
 
-import pdb
 
 class CustomImageFolder(datasets.ImageFolder):
+
     def __init__(self, root, transform=None):
         super().__init__(root, transform=transform)
         self.root = root
@@ -72,6 +72,59 @@ class CustomImageFolder(datasets.ImageFolder):
         for i in range(1, len(subset_indices)):
             crops.append(self.local_crop(self.loader(self.imgs[subset_indices[i]][0])))
 
+        return crops
+    
+    def view_crops(self, crops):
+        for j, image in enumerate(crops):
+            print(image.size())
+            filename = os.path.join('crops', f'crop_{j}.png')
+            image = TF.to_pil_image(image)
+            image.save(filename)
+
+
+class CustomImageFolder2(datasets.ImageFolder):
+    
+    def __init__(self, root, local_crops, crops):
+        super().__init__(root, transform=None)
+        self.root = root
+        self.crops = crops
+        self.imgs = self.samples        # list of samples with form (path to sample, class)
+        # Build an auxiliary structure to fetch items by label quickly
+        self.label_to_indices = self._map_labels_to_indices()
+        self.local_crops = local_crops
+
+    def _map_labels_to_indices(self):
+        label_to_indices = {}
+        for idx, (_, label) in enumerate(self.imgs):
+            if label in label_to_indices:
+                label_to_indices[label].append(idx)
+            else:
+                label_to_indices[label] = [idx]
+        return label_to_indices
+
+    def get_random_subset_for_label(self, label, subset_size, exclude_index=None):
+        indices = self.label_to_indices[label].copy()  # Make a copy so we don't modify the original list
+        if exclude_index is not None:
+            try:
+                indices.remove(exclude_index)
+            except ValueError:
+                pass  # The exclude_index is not in the list, do nothing
+        subset_indices = random.sample(indices, min(subset_size, len(indices)))  # Make sure not to exceed the number of samples available
+        #return [(self.loader(self.imgs[i][0]), self.imgs[i][1]) for i in subset_indices]
+        return subset_indices
+
+    def __getitem__(self, index):
+        imgs, labels = super().__getitem__(index)
+        crops = {}
+        path, target = self.imgs[index]
+        crops["global"] = [self.crops["global"](self.loader(path))]
+        subset_indices = self.get_random_subset_for_label(target, self.local_crops + 1, exclude_index=index)
+        crops["global"].append(self.crops["global"](self.loader(self.imgs[subset_indices[0]][0]))) # global crop first subset image
+
+        #local crops
+        crops["local"] = list()
+        for i in range(1, len(subset_indices)):
+            crops["local"].append(self.crops["local"](self.loader(self.imgs[subset_indices[i]][0])))
         return crops
     
     def view_crops(self, crops):
