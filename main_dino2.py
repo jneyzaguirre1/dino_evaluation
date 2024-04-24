@@ -33,7 +33,6 @@ from torchvision import models as torchvision_models
 import utils
 import vision_transformer as vits
 from vision_transformer import DINOHead
-from custom_image_folder import CustomImageFolder, CustomImageFolder2
 
 torchvision_archs = sorted(name for name in torchvision_models.__dict__
     if name.islower() and not name.startswith("__")
@@ -138,20 +137,12 @@ def train_dino(args):
     cudnn.benchmark = True
 
     # ============ preparing data ... ============
-    global_crop = transforms.Compose([
-        transforms.RandomResizedCrop(224, scale=(0.4, 1.), interpolation=Image.BICUBIC),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
-    local_crop = transforms.Compose([
-        transforms.RandomResizedCrop(96, scale=(0.05, 0.4), interpolation=Image.BICUBIC),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
-    crops = {"global":global_crop, "local":local_crop}
-    dataset = CustomImageFolder2(args.data_path, local_crops=args.local_crops_number, crops=crops)
+    transform = DataAugmentationDINO(
+        args.global_crops_scale,
+        args.local_crops_scale,
+        args.local_crops_number,
+    )
+    dataset = datasets.ImageFolder(args.data_path, transform=transform)
     #sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
     data_loader = torch.utils.data.DataLoader(
         dataset,
@@ -306,7 +297,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
                     fp16_scaler, args):
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
-    for it, images in enumerate(metric_logger.log_every(data_loader, 10, header)):
+    for it, (images, _) in enumerate(metric_logger.log_every(data_loader, 10, header)):
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
         for i, param_group in enumerate(optimizer.param_groups):
