@@ -1,4 +1,5 @@
 import torch
+import matplotlib.pyplot as plt
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import random
@@ -114,25 +115,26 @@ class CustomImageFolder2(datasets.ImageFolder):
         return subset_indices
 
     def __getitem__(self, index):
-        imgs, labels = super().__getitem__(index)
-        crops = {}
+        crops = list()
         path, target = self.imgs[index]
-        crops["global"] = [self.crops["global"](self.loader(path))]
+        # global crops
+        crops.append(self.crops["global"](self.loader(path)))
         subset_indices = self.get_random_subset_for_label(target, self.local_crops + 1, exclude_index=index)
-        crops["global"].append(self.crops["global"](self.loader(self.imgs[subset_indices[0]][0]))) # global crop first subset image
+        crops.append(self.crops["global"](self.loader(self.imgs[subset_indices[0]][0]))) # global crop first subset image
 
         #local crops
-        crops["local"] = list()
         for i in range(1, len(subset_indices)):
-            crops["local"].append(self.crops["local"](self.loader(self.imgs[subset_indices[i]][0])))
+            crops.append(self.crops["local"](self.loader(self.imgs[subset_indices[i]][0])))
         return crops
     
-    def view_crops(self, crops):
-        for j, image in enumerate(crops):
-            print(image.size())
-            filename = os.path.join('crops', f'crop_{j}.png')
-            image = TF.to_pil_image(image)
-            image.save(filename)
+    def view_crops(self, crops, reverse_transform):
+        crops = [reverse_transform(crop) for crop in crops]
+        cols = int(len(crops) / 2)
+        fig, axs = plt.subplots(2, cols)
+        axs = axs.flatten()
+        for i, ax in enumerate(axs):
+            ax.imshow(crops[i][0])
+        plt.show()
 
 if __name__ == "__main__":
     # Assuming '/path/to/dataset' is your directory with class subdirectories
@@ -141,17 +143,39 @@ if __name__ == "__main__":
         transforms.ToTensor()
     ])
 
-    dataset = CustomImageFolder('data/tiny-imagenet-200/train', transform=None)
+    global_crop = transforms.Compose([
+        transforms.RandomResizedCrop(224, scale=(0.4, 1.), interpolation=Image.BICUBIC),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ])
+    local_crop = transforms.Compose([
+        transforms.RandomResizedCrop(96, scale=(0.05, 0.4), interpolation=Image.BICUBIC),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ])
+    reverse_transform = transforms.Compose([
+            transforms.Normalize(mean = [ 0., 0., 0. ], std = [ 1/0.229, 1/0.224, 1/0.225 ]),
+            transforms.Normalize(mean = [ -0.485, -0.456, -0.406 ], std = [ 1., 1., 1. ]),
+            transforms.Lambda(lambda t: t.permute(0, 2, 3, 1)), # CHW to HWC
+            transforms.Lambda(lambda t: t.detach().cpu().numpy())
+    ])
+
+    crops = {"global":global_crop, "local":local_crop}
+
+    #dataset = CustomImageFolder('data/tiny-imagenet-200/train', transform=None)
+    dataset = CustomImageFolder2('../Datasets/imagenet-mini/train', local_crops=8, crops=crops)
 
     # DataLoader instantiation, nothing different here
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
     print(len(dataloader))
 
     #expect 10 because the first item in dataset should be the 10 crops
     print(len(dataset[0]))
     # you'll want to comment out the transforms.normalize if you want the images to be interperetable by humans.
-    dataset.view_crops(dataset[0])
+    #dataset.view_crops(dataset[0])
 
     """
     # Example: iterating through DataLoader to get subsets for the first batch
@@ -166,3 +190,6 @@ if __name__ == "__main__":
         print(len(subsets[0]))
         breakpoint()
     """
+    for crops in dataloader:
+        dataset.view_crops(crops, reverse_transform=reverse_transform) # only works with batch size = 1
+
