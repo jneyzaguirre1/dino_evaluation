@@ -24,7 +24,7 @@ import numpy as np
 from PIL import Image
 import torch
 import torch.nn as nn
-import torch.distributed as dist
+#import torch.distributed as dist
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torchvision import datasets, transforms
@@ -33,7 +33,6 @@ from torchvision import models as torchvision_models
 import utils
 import vision_transformer as vits
 from vision_transformer import DINOHead
-from custom_image_folder import CustomImageFolder
 
 torchvision_archs = sorted(name for name in torchvision_models.__dict__
     if name.islower() and not name.startswith("__")
@@ -88,7 +87,7 @@ def get_args_parser():
     parser.add_argument('--clip_grad', type=float, default=3.0, help="""Maximal parameter
         gradient norm if using gradient clipping. Clipping with norm .3 ~ 1.0 can
         help optimization for larger ViT architectures. 0 for disabling.""")
-    parser.add_argument('--batch_size_per_gpu', default=64, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=32, type=int,
         help='Per-GPU batch-size : number of distinct images loaded on one GPU.')
     parser.add_argument('--epochs', default=100, type=int, help='Number of epochs of training.')
     parser.add_argument('--freeze_last_layer', default=1, type=int, help="""Number of epochs
@@ -123,35 +122,36 @@ def get_args_parser():
     parser.add_argument('--output_dir', default=".", type=str, help='Path to save logs and checkpoints.')
     parser.add_argument('--saveckp_freq', default=20, type=int, help='Save checkpoint every x epochs.')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
-    parser.add_argument('--num_workers', default=10, type=int, help='Number of data loading workers per GPU.')
-    parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
-        distributed training; see https://pytorch.org/docs/stable/distributed.html""")
+    parser.add_argument('--num_workers', default=4, type=int, help='Number of data loading workers per GPU.')
+    #parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
+    #    distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     return parser
 
 
 def train_dino(args):
-    utils.init_distributed_mode(args)
+    #utils.init_distributed_mode(args)
     utils.fix_random_seeds(args.seed)
     print("git:\n  {}\n".format(utils.get_sha()))
     print("\n".join("%s: %s" % (k, str(v)) for k, v in sorted(dict(vars(args)).items())))
     cudnn.benchmark = True
 
     # ============ preparing data ... ============
-    #transform = DataAugmentationDINO(
-    #    args.global_crops_scale,
-    #    args.local_crops_scale,
-    #    args.local_crops_number,
-    #)
-    dataset = CustomImageFolder(args.data_path, transforms=None)
-    sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
+    transform = DataAugmentationDINO(
+        args.global_crops_scale,
+        args.local_crops_scale,
+        args.local_crops_number,
+    )
+    dataset = datasets.ImageFolder(args.data_path, transform=transform)
+    #sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
     data_loader = torch.utils.data.DataLoader(
         dataset,
-        sampler=sampler,
+        #sampler=sampler,
         batch_size=args.batch_size_per_gpu,
         num_workers=args.num_workers,
         pin_memory=True,
         drop_last=True,
+        shuffle=True
     )
     print(f"Data loaded: there are {len(dataset)} images.")
 
@@ -188,14 +188,17 @@ def train_dino(args):
         teacher = nn.SyncBatchNorm.convert_sync_batchnorm(teacher)
 
         # we need DDP wrapper to have synchro batch norms working...
-        teacher = nn.parallel.DistributedDataParallel(teacher, device_ids=[args.gpu])
-        teacher_without_ddp = teacher.module
+        # teacher = nn.parallel.DistributedDataParallel(teacher, device_ids=[args.gpu])
+        # teacher_without_ddp = teacher.module
+        # teacher_without_ddp and teacher are the same thing
+        teacher_without_ddp = teacher
     else:
         # teacher_without_ddp and teacher are the same thing
         teacher_without_ddp = teacher
-    student = nn.parallel.DistributedDataParallel(student, device_ids=[args.gpu])
+    #student = nn.parallel.DistributedDataParallel(student, device_ids=[args.gpu])
     # teacher and student start with the same weights
-    teacher_without_ddp.load_state_dict(student.module.state_dict())
+    # teacher_without_ddp.load_state_dict(student.module.state_dict())
+    teacher_without_ddp.load_state_dict(student.state_dict())
     # there is no backpropagation through the teacher, so no need for gradients
     for p in teacher.parameters():
         p.requires_grad = False
@@ -226,7 +229,7 @@ def train_dino(args):
 
     # ============ init schedulers ... ============
     lr_schedule = utils.cosine_scheduler(
-        args.lr * (args.batch_size_per_gpu * utils.get_world_size()) / 256.,  # linear scaling rule
+        args.lr, #* (args.batch_size_per_gpu) / 256.,  # linear scaling rule
         args.min_lr,
         args.epochs, len(data_loader),
         warmup_epochs=args.warmup_epochs,
@@ -257,8 +260,9 @@ def train_dino(args):
     start_time = time.time()
     print("Starting DINO training !")
     for epoch in range(start_epoch, args.epochs):
-        data_loader.sampler.set_epoch(epoch)
-
+        # Only necessary in using ddp to make shuffling work properly across multiple epochs.
+        # data_loader.sampler.set_epoch(epoch)
+        
         # ============ training one epoch of DINO ... ============
         train_stats = train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
             data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
@@ -336,7 +340,8 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         # EMA update for the teacher
         with torch.no_grad():
             m = momentum_schedule[it]  # momentum parameter
-            for param_q, param_k in zip(student.module.parameters(), teacher_without_ddp.parameters()):
+            #for param_q, param_k in zip(student.module.parameters(), teacher_without_ddp.parameters()):
+            for param_q, param_k in zip(student.parameters(), teacher_without_ddp.parameters()):
                 param_k.data.mul_(m).add_((1 - m) * param_q.detach().data)
 
         # logging
@@ -345,7 +350,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(wd=optimizer.param_groups[0]["weight_decay"])
     # gather the stats from all processes
-    metric_logger.synchronize_between_processes()
+    # metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -399,8 +404,9 @@ class DINOLoss(nn.Module):
         Update center used for teacher output.
         """
         batch_center = torch.sum(teacher_output, dim=0, keepdim=True)
-        dist.all_reduce(batch_center)
-        batch_center = batch_center / (len(teacher_output) * dist.get_world_size())
+        #dist.all_reduce(batch_center)
+        #batch_center = batch_center / (len(teacher_output) * dist.get_world_size())
+        batch_center = batch_center / len(teacher_output)
 
         # ema update
         self.center = self.center * self.center_momentum + batch_center * (1 - self.center_momentum)

@@ -611,7 +611,7 @@ class MultiCropWrapper(nn.Module):
         # convert to list
         if not isinstance(x, list):
             x = [x]
-        idx_crops = torch.cumsum(torch.unique_consecutive(
+        idx_crops = torch.cumsum(torch.unique_consecutive(          # Fancy way to get the indices of the consecutive crops with same last dim
             torch.tensor([inp.shape[-1] for inp in x]),
             return_counts=True,
         )[1], 0)
