@@ -31,6 +31,18 @@ class CustomImageFolder(datasets.ImageFolder):
                 pass  # The exclude_index is not in the list, do nothing
         subset_indices = random.sample(indices, min(subset_size, len(indices)))  # Make sure not to exceed the number of samples available
         return [(self.loader(self.imgs[i][0]), self.imgs[i][1]) for i in subset_indices]
+    
+    
+def map_numerical_labels_to_strings(label_file, numerical_labels):
+    label_mapping = {}
+    with open(label_file, 'r') as file:
+        for line in file:
+            parts = line.strip().split('\t')
+            label_mapping[parts[0]] = parts[1]
+
+    string_labels = [label_mapping[label] for label in numerical_labels if label in label_mapping]
+    return string_labels
+
 
 
 if __name__ == "__main__":
@@ -44,7 +56,8 @@ if __name__ == "__main__":
 
     # DataLoader instantiation, nothing different here
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
-
+    #string_labels = dataset.map_numerical_labels_to_strings('tiny-imagenet-200/tiny-imagenet-200/words.txt')
+    #print(string_labels)
     print(len(dataloader))
 
     # Example: iterating through DataLoader to get subsets for the first batch
@@ -55,6 +68,9 @@ if __name__ == "__main__":
         class_to_idx = dataset.class_to_idx
         idx_to_class = {v: k for k, v in class_to_idx.items()}
         folder_name = [idx_to_class[lbls[j].item()] for j in range(len(lbls))]
+        label_file = 'tiny-imagenet-200/tiny-imagenet-200/words.txt'
+        string_labels = map_numerical_labels_to_strings(label_file, folder_name)
         print(folder_name)
+        print(string_labels)
         print(len(subsets[0]))
         breakpoint()
