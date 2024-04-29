@@ -129,9 +129,9 @@ class CustomImageFolder2(datasets.ImageFolder):
         crops = list()
         path, target = self.imgs[index]
         # global crops
-        crops.append(self.crops["global"](self.loader(path)))
+        crops.append(self.crops["global_1"](self.loader(path)))
         subset_indices = self.get_random_subset_for_label(target, self.local_crops + 1, exclude_index=index)
-        crops.append(self.crops["global"](self.loader(self.imgs[subset_indices[0]][0]))) # global crop first subset image
+        crops.append(self.crops["global_2"](self.loader(self.imgs[subset_indices[0]][0]))) # global crop first subset image
 
         #local crops
         for i in range(1, len(subset_indices)):
@@ -154,7 +154,13 @@ if __name__ == "__main__":
         transforms.ToTensor()
     ])
 
-    global_crop = transforms.Compose([
+    global_crop_1 = transforms.Compose([
+        transforms.RandomResizedCrop(224, scale=(0.4, 1.), interpolation=Image.BICUBIC),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ])
+    global_crop_2 = transforms.Compose([
         transforms.RandomResizedCrop(224, scale=(0.4, 1.), interpolation=Image.BICUBIC),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
@@ -173,10 +179,10 @@ if __name__ == "__main__":
             transforms.Lambda(lambda t: t.detach().cpu().numpy())
     ])
 
-    crops = {"global":global_crop, "local":local_crop}
+    crops = {"global_1":global_crop_1, "global_2":global_crop_2, "local":local_crop}
 
     #dataset = CustomImageFolder('data/tiny-imagenet-200/train', transform=None)
-    dataset = CustomImageFolder2('../Datasets/imagenet-mini/train', local_crops=8, crops=crops)
+    dataset = CustomImageFolder('../data/tiny-imagenet-200/train', local_crops=8, crops=crops)
 
     # DataLoader instantiation, nothing different here
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
@@ -187,7 +193,7 @@ if __name__ == "__main__":
     #expect 10 because the first item in dataset should be the 10 crops
     print(len(dataset[0]))
     # you'll want to comment out the transforms.normalize if you want the images to be interperetable by humans.
-    #dataset.view_crops(dataset[0])
+    dataset.view_crops(dataset[0])
 
     """
     # Example: iterating through DataLoader to get subsets for the first batch
@@ -205,6 +211,5 @@ if __name__ == "__main__":
         print(len(subsets[0]))
         breakpoint()
     """
-    for crops in dataloader:
-        dataset.view_crops(crops, reverse_transform=reverse_transform) # only works with batch size = 1
-
+    #for crops in dataloader:
+    #    dataset.view_crops(crops, reverse_transform=reverse_transform) # only works with batch size = 1
