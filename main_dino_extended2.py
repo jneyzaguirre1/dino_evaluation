@@ -196,7 +196,7 @@ def train_dino(args):
         normalize,
     ])
 
-    crops = {"global":self.global_transfo2, "local":self.local_transfo}
+    crops = {"global_1":self.global_transfo1, "global_2":self.global_transfo2 "local":self.local_transfo}
     dataset = CustomImageFolder2(args.data_path, local_crops=args.local_crops_number, crops=crops)
     #sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
     data_loader = torch.utils.data.DataLoader(
